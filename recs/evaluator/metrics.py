@@ -6,7 +6,7 @@ def precision_at_k(
     k : int=10
 ):
     # Precision@k = (y_trues & y_preds[:k]) / k
-    return len(set(y_trues) & set(y_preds[:k])) / k
+    return np.sum(y_trues == y_preds[:k], axis=0) / k
 
 def map_at_k(
     y_trues: np.ndarray, 
