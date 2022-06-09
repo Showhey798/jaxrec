@@ -6,7 +6,7 @@ import tensorflow as tf
 
 
 def session_parallel_dataset(
-    path:Optional[str]="/home/inoue/work/dataset/RC15/derived/train.df",
+    path:Optional[str]="~/work/dataset/RC15/derived/train.df",
     sessionkey:Optional[str]="sessionId",
     itemkey:Optional[str]="itemId",
     timekey:Optional[str]="timestamp",
@@ -60,14 +60,17 @@ def session_parallel_dataset(
     return dataset, total_length
 
 def negative_sample_dataset(
-    path:Optional[str]="/home/inoue/work/dataset/RC15/derived/train.df",
+    path:Optional[str]="~/work/dataset/RC15/derived/train.df",
     sessionkey:Optional[str]="sessionId",
     itemkey:Optional[str]="itemId",
     timekey:Optional[str]="timestamp",
     batch_size:Optional[int]=32,
     prefetch_size:Optional[int]=tf.data.experimental.AUTOTUNE
 ):
-    df = pd.read_pickle(path)
+    try:
+        df = pd.read_pickle(path)
+    except:
+        df = pd.read_csv(path)
     df.sort_values([timekey, sessionkey], inplace=True)
     
     sess_item_dict = df.groupby(sessionkey)[itemkey].unique().reset_index()

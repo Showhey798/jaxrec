@@ -35,26 +35,26 @@ def update(
     lam:float
 )->Dict[str, jnp.ndarray]:
     
-    for user, pos, neg in data:
+    user, pos, neg = data[:, 0], data[:, 1], data[:, 2]
     
-        u_emb = params.get("user_embedding")[user] # (batch_size, embed_dim)
-        pos_emb = params.get("item_embedding")[pos] # (batch_size, embed_dim)
-        neg_emb = params.get("item_embedding")[neg]
+    u_emb = params.get("user_embedding")[user] # (batch_size, embed_dim)
+    pos_emb = params.get("item_embedding")[pos] # (batch_size, embed_dim)
+    neg_emb = params.get("item_embedding")[neg]
 
-        y_pos = (u_emb * pos_emb).sum(axis=1)
-        y_neg = (u_emb * neg_emb).sum(axis=1)
-        exp_x = jnp.exp(-(y_pos - y_neg))
-        mult = -exp_x / (1.0 + exp_x)
-        mult = mult.reshape(-1, 1)
-        grad_user = pos_emb - neg_emb
+    y_pos = (u_emb * pos_emb).sum(axis=1)
+    y_neg = (u_emb * neg_emb).sum(axis=1)
+    exp_x = jnp.exp(-(y_pos - y_neg))
+    mult = -exp_x / (1.0 + exp_x)
+    mult = mult.reshape(-1, 1)
+    grad_user = pos_emb - neg_emb
 
-        params["user_embedding"] = params["user_embedding"].at[user].set(u_emb + alpha * (mult * grad_user - lam * u_emb))
-        params["item_embedding"] = params["item_embedding"].at[pos].set(pos_emb + alpha * (mult * u_emb - lam * pos_emb))
-        params["item_embedding"] = params["item_embedding"].at[neg].set(neg_emb + alpha * (-mult * u_emb - lam * neg_emb))
+    params["user_embedding"] = params["user_embedding"].at[user].set(u_emb - alpha * (mult * grad_user - lam * u_emb))
+    params["item_embedding"] = params["item_embedding"].at[pos].set(pos_emb - alpha * (mult * u_emb - lam * pos_emb))
+    params["item_embedding"] = params["item_embedding"].at[neg].set(neg_emb - alpha * (-mult * u_emb - lam * neg_emb))
     
     error = jnp.log(1./(1. + exp_x))
 
-    return params, jnp.sum(error)
+    return params, -jnp.sum(error)
 
 @partial(jax.jit, static_argnums=(2,))
 def predict(

@@ -1,2 +1,5 @@
 # jaxrec
-Recommendation algorithms for Collaborative Filtering implemented by jax
+セッションベース推薦システムのプログラムをjax+flaxにより実装していきます
+
+# 現在実装したもの
+
