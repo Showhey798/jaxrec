@@ -13,4 +13,5 @@ class GRU4RecConfig:
     final_act : Optional[str]="log_softmax"
     rng_key : Optional[int] = 0
     learning_rate:Optional[float]=0.01
-    momentum:Optional[float]=0.
+    num_epochs:Optional[int]=500
+    early_stop_count:Optional[int]=3

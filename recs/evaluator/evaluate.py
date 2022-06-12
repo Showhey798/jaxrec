@@ -1,13 +1,13 @@
 from typing import List, Optional
 
 import pandas as pd
+import numpy as np
 from .metrics import precision_at_k, recall_at_k, ndcg_at_k, mrr_at_k, map_at_k
 
 def evaluate(
-    y_trues: pd.core.frame.DataFrame,
-    y_preds: pd.core.frame.DataFrame,
+    df:pd.core.frame.DataFrame,
     k: Optional[int] = 5,
-    metrics: Optional[List[str]] = ["precision", "recall", "ndcg", "mrr"]
+    metrics: Optional[List[str]] = ["precision", "map", "recall", "ndcg", "mrr"]
 ):
     """
         y_truesとy_predsは各ユーザに対してアイテムidの集合をもつデータフレームとする
@@ -20,21 +20,27 @@ def evaluate(
         .
     """
 
-    df = pd.merge(y_trues, y_preds, on="userId")
+    #df = pd.merge(y_trues, y_preds, on="userId")
     
     eval_scores = {}
     for metric in metrics:
 
         if metric == "precision":
-            eval_scores[metric] = df[["itemIds_x", "itemIds_y"]].apply(lambda x: precision_at_k(x[0], x[1], k), axis=1).mean()
-            eval_scores["map"] = df[["itemIds_x", "itemIds_y"]].apply(lambda x: map_at_k(x[0], x[1], k), axis=1).mean()
+            eval_scores[metric] = df[["trueIds", "predIds"]].apply(lambda x: precision_at_k(np.array([x[0]]), x[1], k), axis=1)
+        if metric == "map":    
+            eval_scores["map"] = df[["trueIds", "predIds"]].apply(lambda x: map_at_k(np.array([x[0]]), x[1], k), axis=1)
         
         if metric == "recall":
-            eval_scores[metric] = df[["itemIds_x", "itemIds_y"]].apply(lambda x: recall_at_k(x[0], x[1], k), axis=1).mean()
+            eval_scores[metric] = df[["trueIds", "predIds"]].apply(lambda x: recall_at_k(np.array([x[0]]), x[1], k), axis=1)
 
         if metric == "ndcg":
-            eval_scores[metric] = df[["itemIds_x", "itemIds_y"]].apply(lambda x: ndcg_at_k(x[0], x[1], k), axis=1).mean()
+            eval_scores[metric] = df[["trueIds", "predIds"]].apply(lambda x: ndcg_at_k(np.array([x[0]]), x[1], k), axis=1)
         
         if metric == "mrr":
-            eval_scores[metric] = df[["itemIds_x", "itemIds_y"]].apply(lambda x: mrr_at_k(x[0], x[1], k), axis=1).mean()
-    return eval_scores
+            eval_scores[metric] = df[["trueIds", "predIds"]].apply(lambda x: mrr_at_k(np.array([x[0]]), x[1], k), axis=1)
+      
+    eval_metric_df = pd.concat([eval_scores[key] for key in eval_scores.keys()], axis=1)
+
+    eval_metric_df.columns = metrics
+        
+    return eval_metric_df, eval_metric_df.mean()
