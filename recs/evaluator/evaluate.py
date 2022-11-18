@@ -24,20 +24,20 @@ def evaluate(
     
     eval_scores = {}
     for metric in metrics:
-
+        
         if metric == "precision":
-            eval_scores[metric] = df[["trueIds", "predIds"]].apply(lambda x: precision_at_k(np.array([x[0]]), x[1], k), axis=1)
+            eval_scores[metric] = df[["trueIds", "predIds"]].apply(lambda x: precision_at_k(x[0], x[1], k), axis=1)
         if metric == "map":    
-            eval_scores["map"] = df[["trueIds", "predIds"]].apply(lambda x: map_at_k(np.array([x[0]]), x[1], k), axis=1)
+            eval_scores["map"] = df[["trueIds", "predIds"]].apply(lambda x: map_at_k(x[0], x[1], k), axis=1)
         
         if metric == "recall":
-            eval_scores[metric] = df[["trueIds", "predIds"]].apply(lambda x: recall_at_k(np.array([x[0]]), x[1], k), axis=1)
+            eval_scores[metric] = df[["trueIds", "predIds"]].apply(lambda x: recall_at_k(x[0], x[1], k), axis=1)
 
         if metric == "ndcg":
-            eval_scores[metric] = df[["trueIds", "predIds"]].apply(lambda x: ndcg_at_k(np.array([x[0]]), x[1], k), axis=1)
+            eval_scores[metric] = df[["trueIds", "predIds"]].apply(lambda x: ndcg_at_k(x[0], x[1], k), axis=1)
         
         if metric == "mrr":
-            eval_scores[metric] = df[["trueIds", "predIds"]].apply(lambda x: mrr_at_k(np.array([x[0]]), x[1], k), axis=1)
+            eval_scores[metric] = df[["trueIds", "predIds"]].apply(lambda x: mrr_at_k(x[0], x[1], k), axis=1)
       
     eval_metric_df = pd.concat([eval_scores[key] for key in eval_scores.keys()], axis=1)
 

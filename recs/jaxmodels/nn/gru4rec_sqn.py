@@ -1,7 +1,5 @@
-from typing import Optional, Tuple
-from collections import OrderedDict
+from typing import Optional
 from tqdm import tqdm
-
 import numpy as np
 import pandas as pd
 
@@ -18,55 +16,8 @@ import tensorflow as tf
 
 from ..config import GRU4RecConfig
 
-def bpr_loss(
-    y_true:jnp.ndarray,
-    y_pred:jnp.ndarray
-):
-    true_logits = jnp.diag(y_pred[:, y_true]) # (batch_size, )
-    true_logits = jnp.expand_dims(true_logits, axis=-1) # (batch_size, 1)
-    diff = true_logits - y_pred
-    loss = -jnp.mean(jnp.log(nn.sigmoid(diff)))
-    return loss
-    
 
-def top1_loss(
-    y_true:jnp.ndarray, # (batch_size, )
-    y_pred:np.ndarray   # (batch_size, num_items)
-):
-    true_logits = jnp.diag(y_pred[:, y_true]) # (batch_size, )
-    true_logits = jnp.expand_dims(true_logits, axis=-1) # (batch_size, 1)
-    diff = y_pred - true_logits
-    
-    loss = jnp.log(nn.sigmoid(diff)).mean() + nn.sigmoid(y_pred**2).mean() # (batch_size, )
-    return loss
-
-def cross_entropy_loss(
-    y_true:jnp.ndarray, # (batch_size, )
-    y_pred:np.ndarray   # (batch_size, num_items)
-):
-    
-    logits = y_pred[:, y_true]
-
-    one_hot_labels = jax.nn.one_hot(
-        jnp.arange(y_true.shape[0]), 
-        num_classes=y_true.shape[0])
-
-    loss = -jnp.mean(jnp.sum(one_hot_labels * logits, axis=1))
-    return loss
-
-
-class LossFnuc():
-    def __init__(self, lossname:Optional[str]="top1"):
-        if lossname == "top1":
-            self._loss = top1_loss
-        elif lossname == "cross-entorpy":
-            self._loss = cross_entropy_loss
-    
-    def __call__(self, y_true, y_pred):
-        return self._loss(y_true, y_pred)
-    
-
-class GRU4Rec(nn.Module):
+class SQNGRU4Rec(nn.Module):
     config : GRU4RecConfig
     @staticmethod
     def init_hidden( 
@@ -119,16 +70,18 @@ class GRU4Rec(nn.Module):
         
         output = nn.Dense(self.config.output_size)(x)
         output = self.final_act()(output)
-        return output, jnp.stack(hidden_list, axis=0)
-
+        
+        q_value = nn.Dense(self.config.output_size)(x)
+        
+        return output, jnp.stack(hidden_list, axis=0), q_value
     
+
 def create_train_state(key, config):
-    model = GRU4Rec(config)
+    model = SQNGRU4Rec(config)
     hidden = model.init_hidden(config.batch_size, config.hidden_size, config.num_layers)
-    params = model.init(key, jnp.ones((config.batch_size,), dtype=jnp.int32), hidden)["params"]
+    params = model.init(key, jnp.ones((config.batch_size,), dtype=jnp.float32), hidden)["params"]
     tx = optax.adam(config.learning_rate)
     return train_state.TrainState.create(apply_fn=model.apply, params=params, tx=tx), hidden, model
-
 
 
 
@@ -143,40 +96,47 @@ def train(
     if hidden is None:
         hidden = model.init_hidden(config.batch_size, config.hidden_size, config.num_layers)
         
-    best_loss = np.inf
+    before_loss = np.inf
     stop_count = 0
     losses = []
     
     @jax.jit
-    def train_step(state, x, y, mask, hidden):
-        
-        if len(mask) != 0:
-            hidden = hidden.at[:, mask, :].set(0)
-
+    def train_step(state, x, y, r, mask, hidden):
+        mask, r = jnp.expand_dims(mask, axis=-1), jnp.expand_dims(r, axis=-1)
+        hidden = mask * hidden
         def loss_fn(params, hidden):
-            logits, hidden = model.apply({"params":params}, x, hidden) # (batch_size, num_items)
-            logits, targets = jnp.squeeze(logits), jnp.squeeze(y)
-
-            # loss = top1_loss(targets, logits)
-            # loss = bpr_loss(targets, logits)
+            logits, hidden, q_value = model.apply({"params":params}, x, hidden) # (batch_size, num_items)
+            _, _, n_q_value = model.apply({"params":params}, y, hidden)
             
-            loss = cross_entropy_loss(targets, logits)
+            logits, targets, q_value, n_q_value = jnp.squeeze(logits), jnp.squeeze(y), jnp.squeeze(q_value), jnp.squeeze(n_q_value)
+            logits = logits[:, targets]
+
+            one_hot_labels = jax.nn.one_hot(
+                jnp.arange(targets.shape[0]), 
+                num_classes=targets.shape[0]
+            )
+            td_loss = jnp.mean(jnp.square(r + config.gamma*jnp.max(n_q_value, axis=-1) - q_value[:, targets]))
+
+            loss = -jnp.mean(jnp.sum(one_hot_labels * logits, axis=1)) + td_loss
             return loss, hidden
         
         (loss, hidden), grads = jax.value_and_grad(loss_fn, has_aux=True)(state.params, hidden)
+        
         state = state.apply_gradients(grads=grads)
         return state, loss, hidden
     
     for epoch in range(config.num_epochs):
         batch_loss = 0.
         with tqdm(
-            train_data.as_numpy_iterator(), desc="[Epoch %d] training"%(epoch+1), total=train_len, ncols=100) as ts:
+            train_data.as_numpy_iterator(), 
+            desc="[Epoch %d] training"%epoch, 
+            total=train_len,
+            ncols=150
+        ) as ts:
             for i, batch in enumerate(ts):
-
                 batch = common_utils.shard(batch)
-                inputs, targets, masks = batch[0], batch[2], batch[1]
-                    
-                state, loss, hidden = train_step(state, inputs, targets, masks, hidden)
+                inputs, targets, masks, sess = batch[0], batch[2], batch[1], batch[3]
+                state, loss, hidden = train_step(state, inputs, targets, jnp.ones(config.batch_size), masks, hidden)
                 batch_loss += np.asarray(loss)
 
                 ts.set_postfix_str("loss=%4f"%(batch_loss / (i+1)))
@@ -184,8 +144,8 @@ def train(
         batch_loss = batch_loss / (i + 1)
         losses += [batch_loss]
         
-        if best_loss > batch_loss:
-            best_loss = batch_loss
+        if before_loss > batch_loss:
+            before_loss = batch_loss
             stop_count = 0
         else:
             stop_count += 1
@@ -208,12 +168,12 @@ def predict(
 
     hidden = model.init_hidden(config.batch_size, config.hidden_size, config.num_layers)
     pred_df = pd.DataFrame(columns=[sessionkey, "predIds", "trueIds"])
-    for i, batch in tqdm(enumerate(test_data.as_numpy_iterator()), desc="predicting", total=test_len, ncols=100):
+    for i, batch in tqdm(enumerate(test_data.as_numpy_iterator()), desc="predicting", total=test_len, ncols=150):
         batch = common_utils.shard(batch)
         inputs, targets, masks, sessId = jnp.squeeze(batch[0]), jnp.squeeze(batch[2]), jnp.squeeze(batch[1]), jnp.squeeze(batch[3])
         masks = jnp.expand_dims(masks, axis=-1)
         hidden = masks * hidden
-        logits, hidden = jax.jit(model.apply)({"params":state.params}, inputs, hidden)
+        logits, hidden, _ = jax.jit(model.apply)({"params":state.params}, inputs, hidden)
 
         _, indices = jax.lax.top_k(logits, k=k)
 

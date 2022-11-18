@@ -5,6 +5,8 @@ import pandas as pd
 import numpy as np
 import pickle
 
+from flax.training import train_state
+
 
 def get_y_trues(
     data:pd.core.frame.DataFrame,
@@ -28,15 +30,18 @@ def train_test_split(
     return data[data["timestamp"] <= split_date], data[data["timestamp"] > split_date]
 
 def save_params(
-    params: Dict[str, Any],
+    params:Dict[str, Any],
     name:Optional[str]="model",
     path : Optional[str]= "~/work/recs/params/"
 ):
     save_path = os.path.join(path, name)
-    print("=====saving parameters=====")
-    pickle.dump(params, save_path)
+    print("=====saving states=====")
+    with open(save_path, mode="wb") as f:
+        pickle.dump(params, f)
     print("=====done=====")
     
     
 
+def get_batchs(batch):
+    return batch["state"], batch["action"], batch["n_state"], batch["reward"]
 

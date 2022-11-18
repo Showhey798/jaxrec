@@ -1,4 +1,4 @@
-from typing import Optional
+from typing import Optional, List
 from flax import struct
 
 @struct.dataclass
@@ -15,3 +15,14 @@ class GRU4RecConfig:
     learning_rate:Optional[float]=0.01
     num_epochs:Optional[int]=500
     early_stop_count:Optional[int]=3
+    gamma:Optional[float]=1.
+
+@struct.dataclass
+class SASRecConfig:
+    hidden_size : int
+    num_heads : int
+    dropout_rate : float
+    num_units:List[int]
+    eps:Optional[float]=1e-8
+    
+    

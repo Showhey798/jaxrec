@@ -1,12 +1,13 @@
-
 from typing import Optional
 import pandas as pd
 import numpy as np
+from sklearn.model_selection import TimeSeriesSplit
 import tensorflow as tf
 
 
 def session_parallel_dataset(
-    path:Optional[str]="~/work/dataset/RC15/derived/train.df",
+    #path:Optional[str]="~/work/dataset/RC15/derived/train.df",
+    df:pd.core.frame.DataFrame,
     sessionkey:Optional[str]="sessionId",
     itemkey:Optional[str]="itemId",
     timekey:Optional[str]="timestamp",
@@ -14,10 +15,10 @@ def session_parallel_dataset(
     batch_size:Optional[int]=32,
     prefetch_size:Optional[int]=tf.data.experimental.AUTOTUNE
 )->tf.data.Dataset:
-    df = pd.read_pickle(path)
+    #df = pd.read_pickle(path)
     
     if issort:
-        df.sort_values([timekey, sessionkey], inplace=True)
+        df = df.sort_values([timekey, sessionkey])
     click_offsets = np.zeros(df[sessionkey].nunique()+1, dtype=np.int32)
     click_offsets[1:] = df.groupby(sessionkey).size().cumsum()
     session_start = df.groupby(sessionkey)[timekey].min().values
@@ -37,10 +38,10 @@ def session_parallel_dataset(
             for i in range(minlen - 1):
                 idx_input = idx_target
                 idx_target = df[itemkey].values[start + i + 1]
-                sessId = df[sessionkey].values[start + i + 1]
+                sess = df[sessionkey].values[start + i]
                 masks = np.ones(batch_size)
                 masks[mask] = 0
-                yield {"input":idx_input, "target":idx_target, "mask":masks, "sessId":sessId}
+                yield (idx_input, masks, idx_target, sess)
 
             start += (minlen-1)
             mask = np.arange(batch_size)[(end-start) <= 1]
@@ -56,9 +57,9 @@ def session_parallel_dataset(
     with tf.device("/device:CPU:0"):
         dataset = tf.data.Dataset.from_generator(
             generator,
-            output_types = {"input" : tf.int32, "target" : tf.int32, "mask":tf.float32, "sessId":tf.int32},
-            output_shapes = {"input":(batch_size,), "target":(batch_size, ), "mask":(batch_size, ), "sessId":(batch_size, )}
-        )
+            output_types = (tf.int32,tf.int32, tf.int32, tf.int32),
+            output_shapes = ((batch_size, ), (batch_size, ), (batch_size, ), (batch_size, ))
+            )
 
     return dataset, total_length
 
